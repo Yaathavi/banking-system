@@ -1,0 +1,10 @@
+# Node modules (big dependency folder)
+node_modules/
+
+# Environment variables (secrets)
+.env
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

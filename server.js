@@ -95,6 +95,10 @@ app.post("/transactions", (req, res) => {
     status: "approved",
   }); // ✅ return ID to caller
 });
+// Simple health check route for ALB
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
 
 app.listen(process.env.PORT, () => {
   console.log(`🚀 Server running on http://localhost:${process.env.PORT}`);

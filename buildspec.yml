@@ -5,7 +5,8 @@ phases:
     commands:
       - echo "🔑 Logging in to Amazon ECR..."
       - aws --version
-      - $(aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin 663045084048.dkr.ecr.ca-central-1.amazonaws.com)
+      # ✅ Correct way: pipe aws login password directly into docker login
+      - aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin 663045084048.dkr.ecr.ca-central-1.amazonaws.com
       - echo "📦 Installing dependencies..."
       - npm ci
   build:

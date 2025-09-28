@@ -1,4 +1,4 @@
-# Node modules (big dependency folder)
+# Node dependencies
 node_modules/
 
 # Environment variables (secrets)
@@ -8,3 +8,7 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# OS / Editor files
+.DS_Store
+.vscode/

@@ -2,23 +2,17 @@
 require("dotenv").config();
 
 const { SQSClient, SendMessageCommand } = require("@aws-sdk/client-sqs");
+const express = require("express");
+const { v4: uuidv4 } = require("uuid");
+const jwt = require("jsonwebtoken");
 
 // create SQS client using your region from .env
 const sqs = new SQSClient({ region: process.env.AWS_REGION });
 
-const express = require("express");
-
-const app = express(); // creates the express app instance
-
-app.use(express.json()); // lets us read JSON body from requests
+const app = express();
+app.use(express.json());
 
 const users = [{ account_id: "12345", password: "password123" }];
-
-const { v4: uuidv4 } = require("uuid"); // 👈 add at the top
-
-// maybe a ping thing later
-
-const jwt = require("jsonwebtoken");
 
 // POST /login route
 app.post("/login", (req, res) => {
@@ -41,7 +35,7 @@ app.post("/login", (req, res) => {
 });
 
 // POST /transactions - validates token, applies fraud detection rules
-app.post("/transactions", (req, res) => {
+app.post("/transactions", async (req, res) => {
   // 1. Get token from the Authorization header
   const authHeader = req.headers["authorization"];
   if (!authHeader) {
@@ -52,7 +46,6 @@ app.post("/transactions", (req, res) => {
   const token = authHeader.split(" ")[1];
 
   // 2. Verify token
-  const jwt = require("jsonwebtoken");
   try {
     jwt.verify(token, process.env.JWT_SECRET); // throws error if invalid
   } catch (err) {
@@ -62,12 +55,12 @@ app.post("/transactions", (req, res) => {
   // 3. Get transaction data from request body
   const transaction = req.body;
 
-  // 4. Apply fraud rules
+  // 4. Apply fraud rules (async)
   const fraudRules = require("./utils/fraudRules");
-  const flagged = fraudRules(transaction);
+  const flaggedResult = await fraudRules(transaction);
 
-  if (flagged) {
-    console.log("🚨 FLAGGED TRANSACTION:", transaction);
+  if (flaggedResult.flagged) {
+    console.log("🚨 FLAGGED TRANSACTION:", flaggedResult.reason, transaction);
     transaction.transaction_id = uuidv4();
 
     // Send message to SQS
@@ -76,32 +69,32 @@ app.post("/transactions", (req, res) => {
       MessageBody: JSON.stringify(transaction),
     };
 
-    sqs
-      .send(new SendMessageCommand(params))
-      .then(() =>
-        console.log(
-          "📤 Sent flagged transaction to SQS with ID:",
-          transaction.transaction_id
-        )
-      )
-      .catch((err) => console.error("❌ Failed to send to SQS:", err));
+    try {
+      await sqs.send(new SendMessageCommand(params));
+      console.log(
+        "📤 Sent flagged transaction to SQS with ID:",
+        transaction.transaction_id
+      );
+    } catch (err) {
+      console.error("❌ Failed to send to SQS:", err);
+    }
 
     return res.json({
       status: "flagged",
       transaction_id: transaction.transaction_id,
+      reason: flaggedResult.reason,
     });
   }
-  return res.json({
-    status: "approved",
-  }); // ✅ return ID to caller
+
+  return res.json({ status: "approved" });
 });
+
 // Simple health check route for ALB
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });
 });
 
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
 });

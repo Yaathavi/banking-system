@@ -17,11 +17,11 @@ export const handler = async (event) => {
     const transaction = JSON.parse(record.body);
     console.log("🚩 Processing flagged transaction:", transaction);
 
-    const timestamp = Date.now(); // epoch ms
+    const timestamp = Date.now(); // ms since epoch
     const isoTimestamp = new Date(timestamp).toISOString();
 
     try {
-      // 1️⃣ Save flagged transaction to Fraud_Transactions table
+      // 1️⃣ Save flagged transaction
       await ddb.send(
         new PutItemCommand({
           TableName: process.env.TABLE_NAME,
@@ -37,26 +37,29 @@ export const handler = async (event) => {
       );
       console.log("✅ Saved transaction to Fraud_Transactions");
 
-      // 2️⃣ Update User_Stats (running average, txn_count)
+      // 2️⃣ Update User_Stats
       if (process.env.USER_STATS_TABLE && transaction.account_id) {
         await ddb.send(
           new UpdateItemCommand({
             TableName: process.env.USER_STATS_TABLE,
             Key: { account_id: { S: transaction.account_id } },
             UpdateExpression:
-              "SET txn_count = if_not_exists(txn_count, :zero) + :inc, total_amount = if_not_exists(total_amount, :zero) + :amt, avg_amount = (if_not_exists(total_amount, :zero) + :amt) / (if_not_exists(txn_count, :zero) + :inc), last_updated = :ts",
+              "SET #tc = if_not_exists(#tc, :zero) + :inc, #amt = if_not_exists(#amt, :zero) + :amt",
+            ExpressionAttributeNames: {
+              "#tc": "txn_count",
+              "#amt": "total_amount",
+            },
             ExpressionAttributeValues: {
+              ":zero": { N: "0" },
               ":inc": { N: "1" },
               ":amt": { N: transaction.amount.toString() },
-              ":zero": { N: "0" },
-              ":ts": { S: isoTimestamp },
             },
           })
         );
         console.log("📊 Updated User_Stats");
       }
 
-      // 3️⃣ Insert into Recent_Logins (if geo/status present)
+      // 3️⃣ Insert into Recent_Logins
       if (
         process.env.RECENT_LOGINS_TABLE &&
         transaction.account_id &&
@@ -70,15 +73,15 @@ export const handler = async (event) => {
               account_id: { S: transaction.account_id },
               timestamp: { N: timestamp.toString() },
               geo_region: { S: transaction.geo_region },
-              status: { S: transaction.login_status }, // e.g. "success" / "fail"
-              ttl: { N: Math.floor(timestamp / 1000 + 300).toString() }, // expire in 5 min
+              status: { S: transaction.login_status },
+              ttl: { N: Math.floor(timestamp / 1000 + 300).toString() },
             },
           })
         );
         console.log("🕒 Inserted into Recent_Logins");
       }
 
-      // 4️⃣ Publish SNS alert
+      // 4️⃣ Publish SNS
       if (process.env.SNS_TOPIC_ARN) {
         await sns.send(
           new PublishCommand({
@@ -98,7 +101,8 @@ export const handler = async (event) => {
             Record: {
               Data: Buffer.from(
                 JSON.stringify({ ...transaction, timestamp: isoTimestamp }) +
-                  "\n"
+                  "\n",
+                "utf8"
               ),
             },
           })

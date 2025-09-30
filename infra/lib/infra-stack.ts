@@ -23,7 +23,7 @@ export class InfraStack extends cdk.Stack {
 
     // 2️⃣ DynamoDB Table for storing flagged transaction logs
     const flaggedTable = new dynamodb.Table(this, "FraudTransactionsTable", {
-      tableName: "Fraud_Transactions",
+      tableName: "Fraud_Transactions_New",
       partitionKey: { name: "bank_id", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "transaction_id", type: dynamodb.AttributeType.STRING },
       removalPolicy: cdk.RemovalPolicy.RETAIN, // don't delete data accidentally

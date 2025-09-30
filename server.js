@@ -6,15 +6,19 @@ const express = require("express");
 const { v4: uuidv4 } = require("uuid");
 const jwt = require("jsonwebtoken");
 
-// create SQS client using your region from .env
+// SQS client
 const sqs = new SQSClient({ region: process.env.AWS_REGION });
 
 const app = express();
 app.use(express.json());
 
+// Dummy users for login
 const users = [{ account_id: "12345", password: "password123" }];
 
-// POST /login route
+/**
+ * POST /login
+ * Verifies user credentials and returns a JWT.
+ */
 app.post("/login", (req, res) => {
   const { account_id, password } = req.body;
 
@@ -26,7 +30,7 @@ app.post("/login", (req, res) => {
     return res.status(401).json({ error: "Invalid credentials" });
   }
 
-  // Create a JWT token
+  // Create JWT
   const token = jwt.sign({ account_id }, process.env.JWT_SECRET, {
     expiresIn: "1h",
   });
@@ -34,28 +38,32 @@ app.post("/login", (req, res) => {
   res.json({ token });
 });
 
-// POST /transactions - validates token, applies fraud detection rules
+/**
+ * POST /transactions
+ * Verifies JWT and applies fraud detection rules.
+ */
 app.post("/transactions", async (req, res) => {
-  // 1. Get token from the Authorization header
+  // 1. Extract JWT
   const authHeader = req.headers["authorization"];
   if (!authHeader) {
     return res.status(401).json({ error: "Missing token" });
   }
-
-  // Header format: "Bearer <token>", so split on space
   const token = authHeader.split(" ")[1];
 
   // 2. Verify token
   try {
-    jwt.verify(token, process.env.JWT_SECRET); // throws error if invalid
+    jwt.verify(token, process.env.JWT_SECRET);
   } catch (err) {
     return res.status(403).json({ error: "Invalid or expired token" });
   }
 
-  // 3. Get transaction data from request body
+  // 3. Get transaction
   const transaction = req.body;
 
-  // 4. Apply fraud rules (async)
+  // Ensure amount is a number
+  transaction.amount = Number(transaction.amount);
+
+  // 4. Apply fraud rules
   const fraudRules = require("./utils/fraudRules");
   const flaggedResult = await fraudRules(transaction);
 
@@ -63,7 +71,7 @@ app.post("/transactions", async (req, res) => {
     console.log("🚨 FLAGGED TRANSACTION:", flaggedResult.reason, transaction);
     transaction.transaction_id = uuidv4();
 
-    // Send message to SQS
+    // Send to SQS
     const params = {
       QueueUrl: process.env.SQS_QUEUE_URL,
       MessageBody: JSON.stringify(transaction),
@@ -72,7 +80,7 @@ app.post("/transactions", async (req, res) => {
     try {
       await sqs.send(new SendMessageCommand(params));
       console.log(
-        "📤 Sent flagged transaction to SQS with ID:",
+        "📤 Sent flagged transaction to SQS:",
         transaction.transaction_id
       );
     } catch (err) {
@@ -89,7 +97,9 @@ app.post("/transactions", async (req, res) => {
   return res.json({ status: "approved" });
 });
 
-// Simple health check route for ALB
+/**
+ * Health check
+ */
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });
 });
